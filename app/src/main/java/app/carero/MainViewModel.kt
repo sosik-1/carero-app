@@ -83,7 +83,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         wasDriving = driving
 
         val (current, destination, remainM) = if (d.enabled) demoGeo(d) else Triple(i.n.current, i.n.destination, i.n.remainDistanceM)
-        val night = if (d.enabled && d.night != null) d.night else isNight(current?.takeIf { it.lat in 33.0..39.0 && it.lon in 124.0..132.0 } ?: SEOUL, i.now)
+        val night = if (d.enabled && d.night != null) d.night else isNight(current, i.now)
         val ctx = DrivingContext(isDriving = driving, remainDistanceM = remainM, remainTimeSec = if (d.enabled) null else i.n.remainTimeSec, isNight = night, current = current, destination = destination)
 
         val warnings = if (d.enabled) demoWarnings(d) else warningsOf(i.v)
@@ -177,13 +177,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         viewModelScope.launch { delay(4_000); toast.value = null }
     }
 
-    private fun isNight(p: GeoPoint, now: Long): Boolean {
+    /**
+     * 야간 판단. 기기 시간대와 위치가 맞으면 일출·일몰로 계산하고,
+     * 위치를 모르거나 시간대와 맞지 않으면(예: 에뮬레이터 기본 위치) 시각 기준(18시~6시)으로 판단합니다.
+     */
+    private fun isNight(location: GeoPoint?, now: Long): Boolean {
         val cal = Calendar.getInstance()
         cal.timeInMillis = now
-        val (rise, set) = Geo.sunriseSunset(p, cal.get(Calendar.DAY_OF_YEAR), cal.timeZone.getOffset(now) / 3_600_000.0) ?: return false
+        val tzHours = cal.timeZone.getOffset(now) / 3_600_000.0
         val h = cal.get(Calendar.HOUR_OF_DAY) + cal.get(Calendar.MINUTE) / 60.0
+        val loc = location ?: if (cal.timeZone.id == "Asia/Seoul") SEOUL else null
+        val consistent = loc != null && kotlin.math.abs(loc.lon / 15.0 - tzHours) <= 2.5
+        if (!consistent) return h < 6.0 || h >= 18.0
+        val (rise, set) = Geo.sunriseSunset(loc!!, cal.get(Calendar.DAY_OF_YEAR), tzHours) ?: return h < 6.0 || h >= 18.0
         return h < rise || h > set
     }
+
 
     override fun onCleared() {
         vehicleSource.stop(); naviSource.stop(); speedSource.stop()
