@@ -9,14 +9,14 @@ package app.carero.engine
 object Messages {
 
     fun what(w: VehicleWarning): String = when (w.type) {
-        WarningType.BRAKE_FLUID -> "브레이크액이 ${level(w)} 상태예요"
-        WarningType.ENGINE_OIL -> "엔진오일이 ${level(w)} 상태예요"
-        WarningType.TRANSMISSION_OIL -> "변속기오일이 ${level(w)} 상태예요"
+        WarningType.BRAKE_FLUID -> "브레이크액이 ${level(w)}"
+        WarningType.ENGINE_OIL -> "엔진오일이 ${level(w)}"
+        WarningType.TRANSMISSION_OIL -> "변속기오일이 ${level(w)}"
         WarningType.TIRE_LOW_PRESSURE -> "${w.position?.let { "$it " } ?: ""}타이어 공기압이 낮아요"
         WarningType.WASHER_FLUID -> "워셔액이 부족해요"
     }
 
-    private fun level(w: VehicleWarning) = if (w.severity == Severity.CRITICAL) "위험 수준으로 부족한" else "부족한"
+    private fun level(w: VehicleWarning) = if (w.severity == Severity.CRITICAL) "위험 수준으로 부족해요" else "부족해요"
 
     fun why(type: WarningType): String = when (type) {
         WarningType.BRAKE_FLUID -> "브레이크액이 부족하면 제동력이 떨어질 수 있습니다. 누유일 가능성도 있어 정비소 점검이 필요합니다."
@@ -29,8 +29,8 @@ object Messages {
     fun headline(w: VehicleWarning, action: Action, ctx: DrivingContext, shop: ShopSuggestion?): String = when (action) {
         Action.STOP_NOW -> "${what(w)}. 안전한 곳에 정차하세요"
         Action.VIA_REPAIR_SHOP -> {
-            val remain = ctx.remainDistanceM?.let { "목적지까지 ${km(it)} 남았어요. " } ?: ""
-            val where = shop?.let { "${km(it.distanceM)} 거리 ${it.shop.name}" } ?: "가까운 정비소"
+            val remain = ctx.remainDistanceM?.let { "${km(it)} 남았어요. " } ?: ""
+            val where = shop?.let { "${km(it.distanceM)} 앞 ${it.shop.name}" } ?: "가까운 정비소"
             "${what(w)}. ${remain}${where}에 들를까요?"
         }
         Action.CHECK_ON_ARRIVAL -> {

@@ -34,10 +34,14 @@ class PleosNaviSource(context: Context, private val scope: CoroutineScope) {
 
     private val listener = object : NaviHelperEventListener {
         override fun onRouteStarted(routeStartInfo: RouteStartInfo) {
-            _state.update { it.copy(routing = true, remainDistanceM = routeStartInfo.distance, remainTimeSec = routeStartInfo.duration, destinationName = routeStartInfo.name) }
+            if (routeStartInfo.distance > 0) _state.update { it.copy(routing = true, remainDistanceM = routeStartInfo.distance, remainTimeSec = routeStartInfo.duration, destinationName = routeStartInfo.name) }
             navi.getDestinationInfo()
         }
         override fun onDestinationInfo(destinationInfo: DestinationInfo) {
+            // 경로가 없으면 0 값이 옵니다 → 경로 없음으로 처리
+            if (destinationInfo.remainDistance <= 0 || (destinationInfo.latitude == 0.0 && destinationInfo.longitude == 0.0)) {
+                clearRoute(); return
+            }
             _state.update {
                 it.copy(
                     routing = true,
@@ -49,7 +53,8 @@ class PleosNaviSource(context: Context, private val scope: CoroutineScope) {
             }
         }
         override fun onCurrentLocationInfo(currentLocationInfo: CurrentLocationInfo) {
-            _state.update { it.copy(current = GeoPoint(currentLocationInfo.latitude, currentLocationInfo.longitude)) }
+            if (currentLocationInfo.latitude != 0.0 || currentLocationInfo.longitude != 0.0)
+                _state.update { it.copy(current = GeoPoint(currentLocationInfo.latitude, currentLocationInfo.longitude)) }
         }
         override fun onRouteEnded() = clearRoute()
         override fun onRouteCancelled() = clearRoute()

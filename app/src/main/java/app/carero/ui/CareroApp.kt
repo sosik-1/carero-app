@@ -32,6 +32,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -82,8 +85,11 @@ fun CareroApp(vm: MainViewModel) {
 }
 
 @Composable
-fun CareroScreen(s: UiState, vm: CareroActions, initialShowDemo: Boolean = false) {
+fun CareroScreen(s: UiState, vm: CareroActions, initialShowDemo: Boolean = false, uiScale: Float = 1.35f) {
     var showDemo by remember { mutableStateOf(initialShowDemo) }
+    // 차량 화면에서 멀리서도 읽히도록 전체를 키웁니다(주의 분산 최소화).
+    val base = LocalDensity.current
+    CompositionLocalProvider(LocalDensity provides Density(base.density * uiScale, base.fontScale)) {
     MaterialTheme(colorScheme = darkColorScheme(background = C.bg, surface = C.surface, primary = C.info)) {
         Box(Modifier.fillMaxSize().background(C.bg)) {
             Column(Modifier.fillMaxSize().padding(horizontal = 40.dp, vertical = 28.dp)) {
@@ -103,6 +109,7 @@ fun CareroScreen(s: UiState, vm: CareroActions, initialShowDemo: Boolean = false
             s.toast?.let { Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 32.dp)) { Pill(it, C.good) } }
             if (showDemo) DemoPanel(s.demo, vm, Modifier.align(Alignment.CenterEnd))
         }
+    }
     }
 }
 
@@ -241,7 +248,7 @@ private fun statusText(st: CheckStatus) = when (st) {
     CheckStatus.WARN -> "주의"
     CheckStatus.CRITICAL -> "위험"
     CheckStatus.UNKNOWN -> "확인 중"
-    CheckStatus.UNSUPPORTED -> "미지원 차종"
+    CheckStatus.UNSUPPORTED -> "미지원"
 }
 
 // ---------------- 정차 중: 상세 안내 + 컨디션 카드 ----------------
@@ -326,9 +333,9 @@ private fun DemoPanel(d: DemoState, vm: CareroActions, modifier: Modifier) {
                         modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (sel) C.demo else C.surface).clickable { vm.setDemo { it.copy(remainKm = km) }; vm.resetDismissed() }.padding(horizontal = 12.dp, vertical = 8.dp))
                 }
             }
-            Toggle("타이어 저압 (왼쪽 뒤)", d.tireLow) { v -> vm.setDemo { it.copy(tireLow = v) }; vm.resetDismissed() }
-            Toggle("브레이크액 위험", d.brakeCritical) { v -> vm.setDemo { it.copy(brakeCritical = v) }; vm.resetDismissed() }
             Toggle("엔진오일 부족", d.engineOilLow) { v -> vm.setDemo { it.copy(engineOilLow = v) }; vm.resetDismissed() }
+            Toggle("브레이크액 위험", d.brakeCritical) { v -> vm.setDemo { it.copy(brakeCritical = v) }; vm.resetDismissed() }
+            Toggle("타이어 저압 (확장 기능 미리보기)", d.tireLow) { v -> vm.setDemo { it.copy(tireLow = v) }; vm.resetDismissed() }
             Toggle("워셔액 부족", d.washerLow) { v -> vm.setDemo { it.copy(washerLow = v) }; vm.resetDismissed() }
             Toggle("비 (와이퍼 작동)", d.rain) { v -> vm.setDemo { it.copy(rain = v) } }
             Toggle("전조등 꺼짐", d.headlightOff) { v -> vm.setDemo { it.copy(headlightOff = v) } }

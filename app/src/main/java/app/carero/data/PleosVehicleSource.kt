@@ -1,9 +1,7 @@
 package app.carero.data
 
 import ai.pleos.playground.vehicle.Vehicle
-import ai.pleos.playground.vehicle.api.model.area.WheelArea
 import ai.pleos.playground.vehicle.api.model.area.WindowArea
-import ai.pleos.playground.vehicle.constant.area.WheelValue
 import ai.pleos.playground.vehicle.constant.area.WindowValue
 import ai.pleos.playground.vehicle.constant.control.LightState
 import ai.pleos.playground.vehicle.constant.control.OilLevelState
@@ -27,7 +25,7 @@ import kotlinx.coroutines.launch
 
 /**
  * Pleos Vehicle SDK 연동.
- * - 변화가 잦지 않은 값은 리스너로 구독하고(폴링 최소화), 리스너가 없는 값(타이어 저압, 변속기오일)만 30초 간격으로 조회합니다.
+ * - 변화가 잦지 않은 값은 리스너로 구독하고(폴링 최소화), 리스너가 없는 값(변속기오일 30초, 와이퍼 스위치 3초)만 주기적으로 조회합니다.
  * - 조회 실패(미지원 차종, 권한 없음)는 unsupported로 기록하고 판단에서 제외합니다.
  */
 class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
@@ -38,10 +36,6 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
     private var pollJob: Job? = null
     private var started = false
 
-    private val wheels = mapOf(
-        WheelValue.LEFT_FRONT to "왼쪽 앞", WheelValue.RIGHT_FRONT to "오른쪽 앞",
-        WheelValue.LEFT_REAR to "왼쪽 뒤", WheelValue.RIGHT_REAR to "오른쪽 뒤",
-    )
     private val frontWiper = WindowArea(WindowValue.FRONT_WINDSHIELD)
 
     private val brakeListener = object : OilLevelStateListener {
@@ -117,16 +111,8 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
                 { unsupported("transmissionOil", it) },
             )
         }
-        wheels.forEach { (wheel, label) ->
-            safe {
-                vehicle.getTire().getLowTirePressure(
-                    WheelArea(wheel),
-                    // SDK는 Float?를 돌려줍니다. 0보다 크면 저압 경고가 켜진 것으로 해석합니다(에뮬레이터에서 검증 필요).
-                    { v -> _state.update { s -> s.copy(tireLow = s.tireLow + (label to ((v ?: 0f) > 0f))) } },
-                    { unsupported("tire", it) },
-                )
-            }
-        }
+        // 타이어 저압: Tire.getLowTirePressure는 저압 '기준값'(임계 압력)을 돌려주며 실제 공기압은 비공개 API입니다.
+        // 따라서 실제 데이터로는 조회하지 않습니다.
     }
 
     fun stop() {

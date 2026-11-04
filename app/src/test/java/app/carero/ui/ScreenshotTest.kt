@@ -40,26 +40,26 @@ class ScreenshotTest {
         override fun addWaypoint(decision: Decision) {}
         override fun setDemo(update: (DemoState) -> DemoState) {}
     }
-    private val tire = VehicleWarning(WarningType.TIRE_LOW_PRESSURE, Severity.CAUTION, "왼쪽 뒤")
-    private fun checks(tireWarn: Boolean = false, brakeCrit: Boolean = false, washer: Boolean = false) = listOf(
+    private val oil = VehicleWarning(WarningType.ENGINE_OIL, Severity.CAUTION)
+    private fun checks(oilWarn: Boolean = false, brakeCrit: Boolean = false, washer: Boolean = false) = listOf(
         CheckItem("브레이크액", if (brakeCrit) CheckStatus.CRITICAL else CheckStatus.OK),
-        CheckItem("엔진오일", CheckStatus.OK),
+        CheckItem("엔진오일", if (oilWarn) CheckStatus.WARN else CheckStatus.OK),
         CheckItem("변속기오일", CheckStatus.OK),
-        CheckItem("타이어 공기압", if (tireWarn) CheckStatus.WARN else CheckStatus.OK),
+        CheckItem("타이어 공기압", CheckStatus.UNSUPPORTED),
         CheckItem("워셔액", if (washer) CheckStatus.WARN else CheckStatus.OK),
     )
     private fun state(ws: List<VehicleWarning>, ctx: DrivingContext, checks: List<CheckItem>, suggestion: Suggestion? = null) =
         UiState(driving = ctx.isDriving, ctx = ctx, decisions = engine.decide(ws, ctx), suggestion = suggestion, checks = checks,
             demo = DemoState(enabled = true), vehicleSdk = true, naviSdk = true)
 
-    @Test fun s1_near_home_tire() {
+    @Test fun s1_near_home_oil() {
         val ctx = DrivingContext(isDriving = true, remainDistanceM = 3_000, current = GeoPoint(37.5156, 126.9077), destination = GeoPoint(37.5260, 126.8966))
-        paparazzi.snapshot { CareroScreen(state(listOf(tire), ctx, checks(tireWarn = true)), noop) }
+        paparazzi.snapshot { CareroScreen(state(listOf(oil), ctx, checks(oilWarn = true)), noop) }
     }
 
-    @Test fun s2_night_highway_tire() {
+    @Test fun s2_night_highway_oil() {
         val ctx = DrivingContext(isDriving = true, remainDistanceM = 120_000, isNight = true, current = GeoPoint(37.2636, 127.0286), destination = GeoPoint(36.3326, 127.4342))
-        paparazzi.snapshot { CareroScreen(state(listOf(tire), ctx, checks(tireWarn = true)), noop) }
+        paparazzi.snapshot { CareroScreen(state(listOf(oil), ctx, checks(oilWarn = true)), noop) }
     }
 
     @Test fun s3_brake_critical() {
@@ -74,12 +74,12 @@ class ScreenshotTest {
 
     @Test fun s5_parked_detail() {
         val ctx = DrivingContext(isDriving = false, current = GeoPoint(37.5156, 126.9077))
-        val ws = listOf(tire, VehicleWarning(WarningType.WASHER_FLUID, Severity.INFO))
-        paparazzi.snapshot { CareroScreen(state(ws, ctx, checks(tireWarn = true, washer = true)), noop) }
+        val ws = listOf(oil, VehicleWarning(WarningType.WASHER_FLUID, Severity.INFO))
+        paparazzi.snapshot { CareroScreen(state(ws, ctx, checks(oilWarn = true, washer = true)), noop) }
     }
 
     @Test fun s6_demo_panel() {
         val ctx = DrivingContext(isDriving = false, current = GeoPoint(37.5156, 126.9077))
-        paparazzi.snapshot { CareroScreen(state(emptyList(), ctx, checks()).copy(demo = DemoState(enabled = true, driving = true, remainKm = 120, tireLow = true)), noop, initialShowDemo = true) }
+        paparazzi.snapshot { CareroScreen(state(emptyList(), ctx, checks()).copy(demo = DemoState(enabled = true, driving = true, remainKm = 120, engineOilLow = true)), noop, initialShowDemo = true) }
     }
 }

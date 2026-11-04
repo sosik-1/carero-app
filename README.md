@@ -4,9 +4,9 @@
 
 현대자동차그룹 차량용 앱 개발 공모전(Pleos Connect) 출품작입니다.
 
-| 같은 타이어 저압 경고, 집까지 3km | 같은 경고, 야간 고속도로 120km |
+| 같은 엔진오일 부족 경고, 집까지 3km | 같은 경고, 야간 고속도로 120km |
 |---|---|
-| ![](docs/screenshots/s1_near_home_tire.png) | ![](docs/screenshots/s2_night_highway_tire.png) |
+| ![](docs/screenshots/s1_near_home_oil.png) | ![](docs/screenshots/s2_night_highway_oil.png) |
 | **브레이크액 위험 → 즉시 정차** | **비 오는데 전조등 꺼짐 → 한 줄 제안** |
 | ![](docs/screenshots/s3_brake_critical.png) | ![](docs/screenshots/s4_rain_headlight.png) |
 | **정차 중: 상세 안내와 차량 컨디션** | **시연용 데모 패널** |
@@ -24,7 +24,7 @@
    adb install -r "apk/케어로팀_케어로_release.apk"
    ```
 3. 앱 목록에서 **케어로**를 실행합니다. 처음 실행하면 차속 권한(`android.car.permission.CAR_SPEED`)을 허용해 주세요.
-4. 에뮬레이터의 **Virtual Console**에서 차량 상태(브레이크액·엔진오일 수준, 워셔액, 와이퍼, 전조등 등)를 바꾸면 화면이 바뀝니다.
+4. 에뮬레이터의 **Virtual Console**에서 기어(D = 주행 중), 앞유리 와이퍼, 외부 조명 모드를 바꾸면 화면이 바뀝니다. (에뮬레이터에서 확인: 기어 D + 와이퍼 Low + 전조등 끔 → "비 올 땐 전조등을 켜주세요")
 5. 내비게이션에서 목적지를 설정하면 남은 거리를 반영해 판단이 달라집니다.
 
 ### 데모 모드
@@ -54,15 +54,14 @@
 | SDK | API | 용도 |
 |---|---|---|
 | Vehicle · Safety | `registerBrakeFluidLevelState`, `registerEngineOilLevelState`, `getTransmissionOilLevelState`, `registerLowWasherFluidWaringState` | 브레이크액·엔진오일·변속기오일·워셔액 |
-| Vehicle · Tire | `getLowTirePressure` (바퀴별) | 타이어 저압 신호 |
-| Vehicle · Wiper | `registerWiperState` (앞유리) | 비 감지 |
+| Vehicle · Wiper | `registerWiperState`, `getCurrentWiperSwitch` (앞유리) | 비 감지 |
 | Vehicle · Light | `registerLowBeamLightState` | 전조등 상태 |
 | NaviHelper | `onDestinationInfo`(남은 거리·시간·목적지), `onCurrentLocationInfo`, `addWaypoint` | 경로 맥락, 정비소 경유지 추가 |
-| AAOS CarPropertyManager | `PERF_VEHICLE_SPEED` | 주행/정차 판단 |
+| AAOS CarPropertyManager | `PERF_VEHICLE_SPEED`, `GEAR_SELECTION` | 주행/정차 판단 (2km/h 이상 또는 D 기어) |
 
 - 조회 권한만 선언하고 차량 제어 권한은 쓰지 않습니다.
 - 지원하지 않는 차종·기능은 "미지원 차종"으로 표시하고 판단에서 뺍니다.
-- 변화가 잦지 않은 값은 리스너로 구독하고, 리스너가 없는 값(타이어 저압, 변속기오일)만 30초 간격으로 조회합니다.
+- 변화가 잦지 않은 값은 리스너로 구독하고, 리스너가 없는 값만 주기적으로 조회합니다(변속기오일 30초, 와이퍼 스위치 3초).
 
 ## 코드 구조
 
@@ -84,6 +83,7 @@ app/src/main/java/app/carero/
 
 ## 알려진 제약
 
-- `Tire.getLowTirePressure`가 돌려주는 값의 의미는 문서에 명시되어 있지 않아, 0보다 크면 저압으로 해석했습니다. 실제 에뮬레이터에서 검증이 필요합니다.
+- 타이어 저압은 실제 데이터로 판단하지 않습니다. 공개 API `Tire.getLowTirePressure`는 저압 **기준값**(임계 압력)을 돌려주고, 실제 공기압(`getTirePressure`)과 경고등(Telltales)은 비공개 API이기 때문입니다(에뮬레이터에서 4개 바퀴 모두 기준값이 반환되는 것을 확인). 데모 모드에서만 확장 기능 미리보기로 보여줍니다.
+- 에뮬레이터 Virtual Console에는 브레이크액·엔진오일·변속기오일 수준을 바꾸는 항목이 없어, 해당 경고는 데모 모드로 시연합니다.
 - 현재 공개 SDK에는 장소 검색 API가 없어 정비소 목록을 앱에 내장했습니다.
-- 경고등 전체(Telltales), 타이어 공기압 수치는 비공개 API라 사용하지 않습니다.
+

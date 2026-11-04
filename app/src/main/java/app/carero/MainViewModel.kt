@@ -83,7 +83,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         wasDriving = driving
 
         val (current, destination, remainM) = if (d.enabled) demoGeo(d) else Triple(i.n.current, i.n.destination, i.n.remainDistanceM)
-        val night = if (d.enabled && d.night != null) d.night else isNight(current ?: SEOUL, i.now)
+        val night = if (d.enabled && d.night != null) d.night else isNight(current?.takeIf { it.lat in 33.0..39.0 && it.lon in 124.0..132.0 } ?: SEOUL, i.now)
         val ctx = DrivingContext(isDriving = driving, remainDistanceM = remainM, remainTimeSec = if (d.enabled) null else i.n.remainTimeSec, isNight = night, current = current, destination = destination)
 
         val warnings = if (d.enabled) demoWarnings(d) else warningsOf(i.v)
@@ -111,7 +111,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         DecisionEngine.severityOf(v.brakeFluid ?: FluidLevel.UNKNOWN)?.let { add(VehicleWarning(WarningType.BRAKE_FLUID, it)) }
         DecisionEngine.severityOf(v.engineOil ?: FluidLevel.UNKNOWN)?.let { add(VehicleWarning(WarningType.ENGINE_OIL, it)) }
         DecisionEngine.severityOf(v.transmissionOil ?: FluidLevel.UNKNOWN)?.let { add(VehicleWarning(WarningType.TRANSMISSION_OIL, it)) }
-        v.tireLow.filterValues { it }.keys.forEach { add(VehicleWarning(WarningType.TIRE_LOW_PRESSURE, Severity.CAUTION, it)) }
+        // 타이어: 공개 API(getLowTirePressure)는 저압 '기준값'만 제공하고 실제 공기압은 비공개 API라 실제 데이터로는 판단하지 않습니다(데모 모드에서만 재현).
         if (v.washerLow == true) add(VehicleWarning(WarningType.WASHER_FLUID, Severity.INFO))
     }
 
@@ -124,8 +124,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
             else -> CheckStatus.OK
         })
         val tire = CheckItem("타이어 공기압", when {
-            "tire" in v.unsupported && v.tireLow.isEmpty() -> CheckStatus.UNSUPPORTED
-            v.tireLow.isEmpty() -> CheckStatus.UNKNOWN
+            v.tireLow.isEmpty() -> CheckStatus.UNSUPPORTED // 실제 공기압은 비공개 API
             v.tireLow.values.any { it } -> CheckStatus.WARN
             else -> CheckStatus.OK
         })
