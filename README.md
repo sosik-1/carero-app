@@ -36,7 +36,7 @@
 - Pleos Vehicle SDK 2.3.2, NaviHelper SDK 3.0.5
 - 빌드: JDK 17 이상, Gradle 8.10.2, AGP 8.8.2, Kotlin 2.0.21, minSdk 28 / targetSdk 35
 - 소스에서 빌드: `./gradlew :app:assembleRelease`
-- 단위 테스트: `./gradlew :app:testDebugUnitTest` (상황 판단 엔진 14개 테스트)
+- 단위 테스트: `./gradlew :app:testDebugUnitTest` (상황 판단 엔진 16개 테스트)
 
 ## 주요 기능
 

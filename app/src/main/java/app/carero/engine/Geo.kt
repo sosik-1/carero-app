@@ -58,4 +58,17 @@ object Geo {
     private fun rad(d: Double) = d * PI / 180
     private fun deg(r: Double) = r * 180 / PI
     private fun norm360(x: Double) = ((x % 360) + 360) % 360
+
+    /**
+     * 야간 여부. 기기 시간대와 위치가 맞으면 일출·일몰로 계산하고,
+     * 위치를 모르거나 시간대와 맞지 않으면(예: 에뮬레이터 기본 위치) 시각 기준(18시~6시)으로 판단합니다.
+     * @param hourOfDay 현지 시각(시, 소수)
+     * @param tzHours 기기 표준시 오프셋(시간)
+     */
+    fun isNight(location: GeoPoint?, dayOfYear: Int, hourOfDay: Double, tzHours: Double): Boolean {
+        val byClock = hourOfDay < 6.0 || hourOfDay >= 18.0
+        if (location == null || kotlin.math.abs(location.lon / 15.0 - tzHours) > 2.5) return byClock
+        val (rise, set) = sunriseSunset(location, dayOfYear, tzHours) ?: return byClock
+        return hourOfDay < rise || hourOfDay > set
+    }
 }

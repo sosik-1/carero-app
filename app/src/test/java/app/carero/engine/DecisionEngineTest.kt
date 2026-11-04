@@ -114,6 +114,22 @@ class GeoTest {
         assertTrue("sunset=$set", set in 17.2..17.6)
     }
 
+    @Test fun `야간 판단 - 에뮬레이터처럼 위치와 시간대가 안 맞으면 시각 기준`() {
+        // 위치 모름, 미국 서부 시간대, 오전 7시 51분 → 주간
+        assertTrue(!Geo.isNight(null, 308, 7.85, -8.0))
+        // 서울 좌표인데 시간대가 미국 → 시각 기준 → 주간
+        assertTrue(!Geo.isNight(GeoPoint(37.5665, 126.9780), 308, 7.85, -8.0))
+        // 시각 기준 저녁 7시 → 야간
+        assertTrue(Geo.isNight(null, 308, 19.0, 0.0))
+    }
+
+    @Test fun `야간 판단 - 서울 시간대와 위치가 맞으면 일몰 기준`() {
+        val seoul = GeoPoint(37.5665, 126.9780)
+        assertTrue(!Geo.isNight(seoul, 308, 7.85, 9.0))   // 오전 7시 51분, 일출 후
+        assertTrue(Geo.isNight(seoul, 308, 17.75, 9.0))   // 오후 5시 45분, 일몰 후
+        assertTrue(Geo.isNight(seoul, 308, 6.5, 9.0))     // 오전 6시 30분, 일출 전
+    }
+
     @Test fun `서울-대전 직선거리 약 140km`() {
         val d = Geo.distanceM(GeoPoint(37.5547, 126.9707), GeoPoint(36.3326, 127.4342))
         assertTrue("d=$d", d in 135_000.0..145_000.0)

@@ -177,21 +177,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         viewModelScope.launch { delay(4_000); toast.value = null }
     }
 
-    /**
-     * 야간 판단. 기기 시간대와 위치가 맞으면 일출·일몰로 계산하고,
-     * 위치를 모르거나 시간대와 맞지 않으면(예: 에뮬레이터 기본 위치) 시각 기준(18시~6시)으로 판단합니다.
-     */
     private fun isNight(location: GeoPoint?, now: Long): Boolean {
         val cal = Calendar.getInstance()
         cal.timeInMillis = now
         val tzHours = cal.timeZone.getOffset(now) / 3_600_000.0
         val h = cal.get(Calendar.HOUR_OF_DAY) + cal.get(Calendar.MINUTE) / 60.0
         val loc = location ?: if (cal.timeZone.id == "Asia/Seoul") SEOUL else null
-        val consistent = loc != null && kotlin.math.abs(loc.lon / 15.0 - tzHours) <= 2.5
-        if (!consistent) return h < 6.0 || h >= 18.0
-        val (rise, set) = Geo.sunriseSunset(loc!!, cal.get(Calendar.DAY_OF_YEAR), tzHours) ?: return h < 6.0 || h >= 18.0
-        return h < rise || h > set
+        return Geo.isNight(loc, cal.get(Calendar.DAY_OF_YEAR), h, tzHours)
     }
+
 
 
     override fun onCleared() {

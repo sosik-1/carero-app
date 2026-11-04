@@ -129,6 +129,8 @@ private fun TopBar(s: UiState, onDemoToggle: () -> Unit) {
         )
         Spacer(Modifier.width(16.dp))
         OutlinedButton(onClick = onDemoToggle) { Text("데모", color = C.text2) }
+        Spacer(Modifier.width(10.dp))
+        Text("v${app.carero.BuildConfig.VERSION_NAME}", color = C.text2.copy(alpha = 0.6f), fontSize = 12.sp)
     }
 }
 
@@ -259,7 +261,8 @@ private fun ParkedScreen(s: UiState, vm: CareroActions) {
             Text("지금 확인할 일", color = C.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             if (s.decisions.isEmpty()) {
-                Card { Text("확인할 경고가 없어요. 차량 상태가 양호합니다.", color = C.text2, fontSize = 22.sp) }
+                val anyKnown = s.checks.any { it.status == CheckStatus.OK || it.status == CheckStatus.WARN || it.status == CheckStatus.CRITICAL }
+                Card { Text(if (anyKnown) "확인할 경고가 없어요. 차량 상태가 양호합니다." else "확인할 경고가 없어요. 이 차량(에뮬레이터)에서 받을 수 있는 점검 정보가 아직 없어요.", color = C.text2, fontSize = 22.sp) }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(s.decisions) { d -> DecisionCard(d, vm) }
