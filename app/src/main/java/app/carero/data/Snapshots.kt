@@ -12,6 +12,8 @@ data class VehicleSnapshot(
     /** 바퀴 위치 → 저압 여부 */
     val tireLow: Map<String, Boolean> = emptyMap(),
     val wiperOn: Boolean? = null,
+    /** 와이퍼 스위치 위치(저속·고속·간헐 등). Virtual Console은 스위치를 바꿉니다. */
+    val wiperSwitchOn: Boolean? = null,
     val lowBeamOn: Boolean? = null,
     val unsupported: Set<String> = emptySet(),
     val sdkConnected: Boolean = false,

@@ -8,6 +8,7 @@ import ai.pleos.playground.vehicle.constant.area.WindowValue
 import ai.pleos.playground.vehicle.constant.control.LightState
 import ai.pleos.playground.vehicle.constant.control.OilLevelState
 import ai.pleos.playground.vehicle.constant.control.WiperState
+import ai.pleos.playground.vehicle.constant.control.WiperSwitch
 import ai.pleos.playground.vehicle.listener.LightStateListener
 import ai.pleos.playground.vehicle.listener.LowWasherFluidWaringListener
 import ai.pleos.playground.vehicle.listener.OilLevelStateListener
@@ -88,10 +89,24 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
         safe { vehicle.getLight().getCurrentLowBeamLightState({ v -> _state.update { it.copy(lowBeamOn = v.toOn()) } }, { unsupported("lowBeam", it) }) }
 
         pollJob = scope.launch {
+            var tick = 0
             while (isActive) {
-                pollSlowValues()
-                delay(30_000)
+                // 와이퍼 스위치는 리스너가 없어 3초마다, 타이어·변속기오일은 30초마다 조회
+                pollWiperSwitch()
+                if (tick % 10 == 0) pollSlowValues()
+                tick++
+                delay(3_000)
             }
+        }
+    }
+
+    private fun pollWiperSwitch() {
+        safe {
+            vehicle.getWiper().getCurrentWiperSwitch(
+                frontWiper,
+                { v -> _state.update { it.copy(wiperSwitchOn = v.toOn()) } },
+                { unsupported("wiperSwitch", it) },
+            )
         }
     }
 
@@ -148,6 +163,13 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
         "ON" -> true
         "OFF" -> false
         else -> null
+    }
+
+    /** 저속·고속·간헐·미스트는 작동 중. AUTO는 비 여부를 알 수 없어 판단하지 않습니다. */
+    private fun WiperSwitch?.toOn(): Boolean? = when (val n = this?.name) {
+        null, "OTHER", "SERVICE", "AUTO" -> null
+        "OFF" -> false
+        else -> n.startsWith("CONTINUOUS") || n.startsWith("INTERMITTENT") || n == "MIST"
     }
 
     /** 주간주행등(DAYTIME_RUNNING)은 전조등이 아니므로 꺼진 것으로 봅니다. */

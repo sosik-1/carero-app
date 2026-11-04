@@ -69,16 +69,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         speedSource.start()
         viewModelScope.launch { while (true) { delay(60_000); clock.value = System.currentTimeMillis() } }
 
-        val inputs = combine(vehicleSource.state, naviSource.state, speedSource.speedKmh, demo, clock) { v, n, s, d, t -> Inputs(v, n, s, d, t) }
+        val inputs = combine(vehicleSource.state, naviSource.state, combine(speedSource.speedKmh, speedSource.gearDrive) { sp, g -> sp to g }, demo, clock) { v, n, s, d, t -> Inputs(v, n, s.first, d, t, s.second) }
         state = combine(inputs, dismissed, activeSuggestion, toast) { i, dis, sug, msg -> build(i, dis, sug, msg) }
             .stateIn(viewModelScope, SharingStarted.Eagerly, UiState())
     }
 
-    private data class Inputs(val v: VehicleSnapshot, val n: NaviSnapshot, val speed: Float?, val d: DemoState, val now: Long)
+    private data class Inputs(val v: VehicleSnapshot, val n: NaviSnapshot, val speed: Float?, val d: DemoState, val now: Long, val gearDrive: Boolean? = null)
 
     private fun build(i: Inputs, dismissedTypes: Set<WarningType>, sug: Suggestion?, msg: String?): UiState {
         val d = i.d
-        val driving = if (d.enabled && d.driving != null) d.driving else (i.speed ?: 0f) >= 2f
+        val driving = if (d.enabled && d.driving != null) d.driving else (i.speed ?: 0f) >= 2f || i.gearDrive == true
         if (driving && !wasDriving) suggestions.newTrip()
         wasDriving = driving
 
@@ -89,7 +89,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         val warnings = if (d.enabled) demoWarnings(d) else warningsOf(i.v)
         val decisions = engine.decide(warnings.filter { it.type !in dismissedTypes }, ctx)
 
-        val wiper = if (d.enabled) d.rain else i.v.wiperOn
+        val wiper = if (d.enabled) d.rain else when {
+            i.v.wiperOn == true || i.v.wiperSwitchOn == true -> true
+            i.v.wiperOn == false || i.v.wiperSwitchOn == false -> false
+            else -> null
+        }
         val lowBeam = if (d.enabled) !d.headlightOff else i.v.lowBeamOn
         suggestions.evaluate(driving, wiper, lowBeam, night)?.let { s ->
             activeSuggestion.value = s
