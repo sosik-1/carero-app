@@ -80,6 +80,72 @@ class DecisionEngineTest {
         assertNull(DecisionEngine.severityOf(FluidLevel.UNKNOWN))
         assertEquals(Severity.CAUTION, DecisionEngine.severityOf(FluidLevel.LOW))
     }
+    // ---------- 계기판 경고등 ----------
+    private fun lamp(id: String, blink: Boolean = false) = TelltaleGuide.warningOf(ActiveTelltale(id, blink))
+
+    @Test fun `빨간 엔진 과열 경고등은 즉시 정차`() {
+        val w = lamp("ENGINE_TEMPERATURE")!!
+        val d = engine.decideOne(w, DrivingContext(isDriving = true, current = seoul))
+        assertEquals(Action.STOP_NOW, d.action)
+        assertTrue(d.headline.contains("엔진 과열"))
+        assertTrue(d.detail.contains("라디에이터"))
+    }
+
+    @Test fun `같은 엔진 점검등 - 3km면 도착 후, 120km면 정비소 경유`() {
+        val w = lamp("ENGINE")!!
+        assertEquals(Action.CHECK_ON_ARRIVAL, engine.decideOne(w, DrivingContext(isDriving = true, remainDistanceM = 3_000, current = nearHome, destination = seoul)).action)
+        assertEquals(Action.VIA_REPAIR_SHOP, engine.decideOne(w, DrivingContext(isDriving = true, remainDistanceM = 120_000, current = seoul, destination = daejeon)).action)
+    }
+
+    @Test fun `엔진 점검등이 깜빡이면 즉시 정차`() {
+        assertEquals(Action.STOP_NOW, engine.decideOne(lamp("ENGINE", blink = true)!!, DrivingContext(isDriving = true, current = seoul)).action)
+    }
+
+    @Test fun `안전벨트 경고등은 바로 조치 한 줄`() {
+        val d = engine.decideOne(lamp("SEAT_BELT")!!, DrivingContext(isDriving = true, current = seoul))
+        assertEquals(Action.FIX_NOW, d.action)
+        assertEquals("안전벨트를 매지 않은 자리가 있어요", d.headline)
+        assertNull(d.shop)
+    }
+
+    @Test fun `ESC가 깜빡이는 건 정상 작동이라 경고 아님`() {
+        assertNull(lamp("ESC", blink = true))
+        assertNotNull(lamp("ESC"))
+    }
+
+    @Test fun `안내 표시와 모르는 경고등은 경고 아님`() {
+        assertNull(lamp("AUTO_HOLD"))
+        assertNull(lamp("TURN_SIGNAL_LEFT"))
+    }
+
+    @Test fun `경고등 사전 id는 겹치지 않고 SDK 이름 형식`() {
+        val ids = TelltaleGuide.all.map { it.id }
+        assertEquals(ids.size, ids.toSet().size)
+        assertTrue(ids.all { it.matches(Regex("[A-Z0-9_]+")) })
+        assertTrue(TelltaleGuide.all.all { it.level != TelltaleLevel.FIX_NOW || it.quick != null })
+    }
+
+    @Test fun `경고등 이름이 겹치지 않게 읽힘`() {
+        assertTrue(Messages.what(lamp("ABS")!!).startsWith("ABS 경고등이"))
+        assertTrue(Messages.what(lamp("ENGINE")!!).startsWith("엔진 점검 경고등이"))
+        assertTrue(Messages.what(lamp("ENGINE", blink = true)!!).endsWith("깜빡여요"))
+    }
+
+    @Test fun `정차 중 경고등 안내는 사전의 할 일을 한 번만`() {
+        val d = engine.decideOne(lamp("ABS")!!, DrivingContext(isDriving = false, current = seoul))
+        assertEquals(1, Regex("급제동을 피하고").findAll(d.detail).count())
+        assertTrue(!d.detail.contains("상태를 확인"))
+    }
+
+    @Test fun `같은 수준이면 바로 조치할 일이 먼저`() {
+        val ds = engine.decide(listOf(lamp("ABS")!!, lamp("SEAT_BELT")!!, lamp("ENGINE_TEMPERATURE")!!), DrivingContext(isDriving = true, current = seoul))
+        assertEquals(listOf("ENGINE_TEMPERATURE", "SEAT_BELT", "ABS"), ds.map { it.warning.telltale })
+    }
+
+    @Test fun `경고등은 등마다 따로 숨김`() {
+        assertTrue(lamp("ABS")!!.key != lamp("ENGINE")!!.key)
+        assertEquals("ENGINE_OIL", VehicleWarning(WarningType.ENGINE_OIL, Severity.CAUTION).key)
+    }
 }
 
 class SuggestionEngineTest {
@@ -134,4 +200,5 @@ class GeoTest {
         val d = Geo.distanceM(GeoPoint(37.5547, 126.9707), GeoPoint(36.3326, 127.4342))
         assertTrue("d=$d", d in 135_000.0..145_000.0)
     }
+
 }

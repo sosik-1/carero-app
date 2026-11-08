@@ -22,8 +22,9 @@ class DecisionEngine(
 
     fun decide(warnings: List<VehicleWarning>, ctx: DrivingContext): List<Decision> =
         warnings
-            .sortedBy { it.severity.ordinal }
             .map { decideOne(it, ctx) }
+            // 위험한 것부터, 같은 수준이면 바로 할 수 있는 조치(안전벨트 등)를 먼저
+            .sortedWith(compareBy({ it.warning.severity.ordinal }, { if (it.action == Action.FIX_NOW) 0 else 1 }))
 
     fun decideOne(w: VehicleWarning, ctx: DrivingContext): Decision {
         val action = chooseAction(w, ctx)
@@ -38,7 +39,11 @@ class DecisionEngine(
         )
     }
 
-    internal fun chooseAction(w: VehicleWarning, ctx: DrivingContext): Action = when (w.severity) {
+    internal fun chooseAction(w: VehicleWarning, ctx: DrivingContext): Action =
+        if (w.severity != Severity.CRITICAL && TelltaleGuide.of(w.telltale)?.level == TelltaleLevel.FIX_NOW) Action.FIX_NOW
+        else chooseBySeverity(w, ctx)
+
+    private fun chooseBySeverity(w: VehicleWarning, ctx: DrivingContext): Action = when (w.severity) {
         Severity.CRITICAL -> Action.STOP_NOW
         Severity.INFO -> Action.NEXT_TIME
         Severity.CAUTION -> {

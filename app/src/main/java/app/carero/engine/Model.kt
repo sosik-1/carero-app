@@ -7,6 +7,8 @@ enum class WarningType(val label: String) {
     TRANSMISSION_OIL("변속기오일"),
     TIRE_LOW_PRESSURE("타이어 공기압"),
     WASHER_FLUID("워셔액"),
+    /** 계기판 경고등. 어떤 등인지는 VehicleWarning.telltale (TelltaleGuide 참고) */
+    TELLTALE("경고등"),
 }
 
 /** 경고 심각도 */
@@ -20,7 +22,14 @@ data class VehicleWarning(
     val severity: Severity,
     /** 예: 타이어 위치 "왼쪽 뒤" */
     val position: String? = null,
-)
+    /** 경고등일 때 SDK TelltaleType 이름 */
+    val telltale: String? = null,
+    /** 경고등이 깜빡이는 중 */
+    val blinking: Boolean = false,
+) {
+    /** '확인했어요'로 숨길 때 쓰는 이름. 경고등은 등마다 따로 숨깁니다. */
+    val key: String get() = telltale ?: type.name
+}
 
 /** 상황 판단 엔진이 내리는 행동 4종 */
 enum class Action {
@@ -32,6 +41,8 @@ enum class Action {
     CHECK_ON_ARRIVAL,
     /** 다음 주유·정차 때 처리 */
     NEXT_TIME,
+    /** 바로 할 수 있는 조치(안전벨트·문 닫기·주유 등) */
+    FIX_NOW,
 }
 
 data class GeoPoint(val lat: Double, val lon: Double)

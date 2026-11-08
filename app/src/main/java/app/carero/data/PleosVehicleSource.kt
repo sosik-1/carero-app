@@ -2,6 +2,7 @@ package app.carero.data
 
 import ai.pleos.playground.vehicle.Vehicle
 import ai.pleos.playground.vehicle.api.model.area.WindowArea
+import ai.pleos.playground.vehicle.api.model.telltale.Telltales
 import ai.pleos.playground.vehicle.constant.area.WindowValue
 import ai.pleos.playground.vehicle.constant.control.LightState
 import ai.pleos.playground.vehicle.constant.control.OilLevelState
@@ -10,9 +11,11 @@ import ai.pleos.playground.vehicle.constant.control.WiperSwitch
 import ai.pleos.playground.vehicle.listener.LightStateListener
 import ai.pleos.playground.vehicle.listener.LowWasherFluidWaringListener
 import ai.pleos.playground.vehicle.listener.OilLevelStateListener
+import ai.pleos.playground.vehicle.listener.TelltaleInfoListener
 import ai.pleos.playground.vehicle.listener.WiperStateListener
 import android.content.Context
 import android.util.Log
+import app.carero.engine.ActiveTelltale
 import app.carero.engine.FluidLevel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -29,6 +32,16 @@ import kotlinx.coroutines.launch
  * - 조회 실패(미지원 차종, 권한 없음)는 unsupported로 기록하고 판단에서 제외합니다.
  */
 class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
+    companion object {
+        /**
+         * 계기판 경고등(Safety.getTelltalesInfo) 사용 여부.
+         * 이 API는 공개 문서에 없는 비공개 권한(pleos.car.permission.PRIVATE_CAR_SAFETY)이 필요하고,
+         * Pleos 문서상 승인되지 않은 권한·API를 쓰면 앱 심사를 통과할 수 없어 꺼 둡니다.
+         * 승인을 받으면 true로 바꾸고 매니페스트에 위 권한을 추가하면 됩니다(에뮬레이터에서 동작 확인함).
+         */
+        const val USE_TELLTALE_API = false
+    }
+
     private val tag = "CareroVehicle"
     private val vehicle = Vehicle(context.applicationContext)
     private val _state = MutableStateFlow(VehicleSnapshot())
@@ -59,6 +72,12 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
         override fun onFailed(p0: Exception) = unsupported("lowBeam", p0)
     }
 
+    // 계기판 경고등 전체 목록. 켜짐(ON)·깜빡임(BLINK)만 남깁니다.
+    private val telltaleListener = object : TelltaleInfoListener {
+        override fun onTelltaleInfoUpdated(p0: Telltales?) = onTelltales(p0)
+        override fun onFailed(p0: Exception) = unsupported("telltale", p0)
+    }
+
     fun start() {
         if (started) return
         try {
@@ -75,12 +94,15 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
         safe { safety.registerLowWasherFluidWaringState(washerListener) }
         safe { vehicle.getWiper().registerWiperState(frontWiper, wiperListener) }
         safe { vehicle.getLight().registerLowBeamLightState(lowBeamListener) }
+        if (USE_TELLTALE_API) safe { safety.registerTelltales(telltaleListener) }
         // 초기값
         safe { safety.getBrakeFluidLevelState({ v -> _state.update { it.copy(brakeFluid = v.toLevel()) } }, { unsupported("brake", it) }) }
         safe { safety.getEngineOilLevelState({ v -> _state.update { it.copy(engineOil = v.toLevel()) } }, { unsupported("engineOil", it) }) }
         safe { safety.hasLowWasherFluidWarning({ v -> _state.update { it.copy(washerLow = v) } }, { unsupported("washer", it) }) }
         safe { vehicle.getWiper().getCurrentWiperState(frontWiper, { v -> _state.update { it.copy(wiperOn = v.toOn()) } }, { unsupported("wiper", it) }) }
         safe { vehicle.getLight().getCurrentLowBeamLightState({ v -> _state.update { it.copy(lowBeamOn = v.toOn()) } }, { unsupported("lowBeam", it) }) }
+        if (USE_TELLTALE_API) safe { safety.getTelltalesInfo({ v -> onTelltales(v) }, { unsupported("telltale", it) }) }
+        else _state.update { it.copy(unsupported = it.unsupported + "telltale") }
 
         pollJob = scope.launch {
             var tick = 0
@@ -124,6 +146,7 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
         safe { safety.unregisterLowWasherFluidWaringState(washerListener) }
         safe { vehicle.getWiper().unregisterWiperState(frontWiper, wiperListener) }
         safe { vehicle.getLight().unregisterLowBeamLightState(lowBeamListener) }
+        if (USE_TELLTALE_API) safe { safety.unregisterTelltales(telltaleListener) }
         safe { vehicle.release() }
         started = false
     }
@@ -136,6 +159,18 @@ class PleosVehicleSource(context: Context, private val scope: CoroutineScope) {
     private inline fun safe(block: () -> Unit) {
         try { block() } catch (e: Exception) { Log.w(tag, "SDK call failed", e) }
     }
+
+    private fun onTelltales(t: Telltales?) {
+        val active = t.toActive()
+        Log.i(tag, "telltales: ${t?.telltales?.size ?: 0} received, on=${active.joinToString { it.id + if (it.blinking) "(blink)" else "" }}")
+        _state.update { it.copy(telltales = active) }
+    }
+
+    private fun Telltales?.toActive(): List<ActiveTelltale> =
+        this?.telltales.orEmpty()
+            .filter { it.state?.name == "ON" || it.state?.name == "BLINK" }
+            .mapNotNull { t -> t.type?.name?.let { ActiveTelltale(it, blinking = t.state?.name == "BLINK") } }
+            .distinctBy { it.id }
 
     private fun OilLevelState?.toLevel(): FluidLevel = when (this?.name) {
         "LOW" -> FluidLevel.LOW

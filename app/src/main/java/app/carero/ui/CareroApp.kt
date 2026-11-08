@@ -57,6 +57,11 @@ import app.carero.engine.Action
 import app.carero.engine.Decision
 import app.carero.engine.Messages
 import app.carero.engine.Severity
+import app.carero.engine.LampColor
+import app.carero.engine.TelltaleGuide
+import app.carero.engine.TelltaleInfo
+import app.carero.engine.TelltaleLevel
+import app.carero.engine.VehicleWarning
 
 private object C {
     val bg = Color(0xFF101418)
@@ -72,7 +77,7 @@ private object C {
 }
 
 interface CareroActions {
-    fun dismiss(type: app.carero.engine.WarningType)
+    fun dismiss(warning: VehicleWarning)
     fun resetDismissed()
     fun addWaypoint(decision: Decision)
     fun setDemo(update: (DemoState) -> DemoState)
@@ -85,8 +90,11 @@ fun CareroApp(vm: MainViewModel) {
 }
 
 @Composable
-fun CareroScreen(s: UiState, vm: CareroActions, initialShowDemo: Boolean = false, uiScale: Float = 1.35f) {
+fun CareroScreen(s: UiState, vm: CareroActions, initialShowDemo: Boolean = false, uiScale: Float = 1.35f, initialShowGuide: Boolean = false) {
     var showDemo by remember { mutableStateOf(initialShowDemo) }
+    var guideOpen by remember { mutableStateOf(initialShowGuide) }
+    // 경고등 사전은 정차 중에만 엽니다(운전 중 주의 분산 방지). 출발하면 저절로 닫힙니다.
+    val showGuide = guideOpen && !s.driving
     // 차량 화면에서 멀리서도 읽히도록 전체를 키웁니다(주의 분산 최소화).
     val base = LocalDensity.current
     CompositionLocalProvider(LocalDensity provides Density(base.density * uiScale, base.fontScale)) {
@@ -99,7 +107,8 @@ fun CareroScreen(s: UiState, vm: CareroActions, initialShowDemo: Boolean = false
                 when {
                     critical != null -> CriticalScreen(critical, s, vm)
                     s.driving -> DrivingScreen(s, vm)
-                    else -> ParkedScreen(s, vm)
+                    showGuide -> TelltaleGuideScreen(s, onClose = { guideOpen = false })
+                    else -> ParkedScreen(s, vm, onOpenGuide = { guideOpen = true })
                 }
             }
             // 안전 운전 제안 (상단 한 줄)
@@ -162,11 +171,14 @@ private fun severityLabel(s: Severity) = when (s) {
     Severity.INFO -> "안내 · 나중에"
 }
 
+private fun decisionLabel(d: Decision) = if (d.action == Action.FIX_NOW) "지금 확인" else severityLabel(d.warning.severity)
+
 private fun actionLabel(a: Action) = when (a) {
     Action.STOP_NOW -> "즉시 정차"
     Action.VIA_REPAIR_SHOP -> "경로 위 정비소 경유"
     Action.CHECK_ON_ARRIVAL -> "도착 후 점검"
     Action.NEXT_TIME -> "다음 기회에"
+    Action.FIX_NOW -> "바로 조치"
 }
 
 // ---------------- 위험: 큰 경고 ----------------
@@ -187,7 +199,7 @@ private fun CriticalScreen(d: Decision, s: UiState, vm: CareroActions) {
         d.shop?.let { Text("가장 가까운 정비소: ${it.shop.name} (${Messages.km(it.distanceM)})${it.shop.phone?.let { p -> " · $p" } ?: ""}", color = C.text, fontSize = 22.sp) }
         Spacer(Modifier.height(20.dp))
         Row {
-            Button(onClick = { vm.dismiss(d.warning.type) }, colors = ButtonDefaults.buttonColors(containerColor = C.critical, contentColor = Color.White)) {
+            Button(onClick = { vm.dismiss(d.warning) }, colors = ButtonDefaults.buttonColors(containerColor = C.critical, contentColor = Color.White)) {
                 Text("확인했어요", fontSize = 22.sp, modifier = Modifier.padding(8.dp))
             }
         }
@@ -217,7 +229,7 @@ private fun DrivingScreen(s: UiState, vm: CareroActions) {
                 if (d.action == Action.VIA_REPAIR_SHOP && d.shop != null) {
                     Button(onClick = { vm.addWaypoint(d) }, colors = ButtonDefaults.buttonColors(containerColor = C.info, contentColor = Color.White)) { Text("경유지 추가", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(10.dp)) }
                 } else {
-                    OutlinedButton(onClick = { vm.dismiss(d.warning.type) }) { Text("확인", fontSize = 24.sp, color = C.text, modifier = Modifier.padding(10.dp)) }
+                    OutlinedButton(onClick = { vm.dismiss(d.warning) }) { Text("확인", fontSize = 24.sp, color = C.text, modifier = Modifier.padding(10.dp)) }
                 }
             }
         }
@@ -255,7 +267,7 @@ private fun statusText(st: CheckStatus) = when (st) {
 
 // ---------------- 정차 중: 상세 안내 + 컨디션 카드 ----------------
 @Composable
-private fun ParkedScreen(s: UiState, vm: CareroActions) {
+private fun ParkedScreen(s: UiState, vm: CareroActions, onOpenGuide: () -> Unit) {
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
         Column(Modifier.weight(1.6f)) {
             Text("지금 확인할 일", color = C.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
@@ -274,13 +286,17 @@ private fun ParkedScreen(s: UiState, vm: CareroActions) {
             Spacer(Modifier.height(12.dp))
             Card {
                 s.checks.forEach { c ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(16.dp).clip(CircleShape).background(statusColor(c.status)))
                         Spacer(Modifier.width(14.dp))
                         Text(c.label, color = C.text, fontSize = 22.sp, modifier = Modifier.weight(1f))
                         Text(statusText(c.status), color = C.text2, fontSize = 20.sp)
                     }
                 }
+            }
+            Spacer(Modifier.height(14.dp))
+            OutlinedButton(onClick = onOpenGuide, modifier = Modifier.fillMaxWidth()) {
+                Text("경고등 사전", fontSize = 20.sp, color = C.text)
             }
         }
     }
@@ -296,7 +312,7 @@ private fun DecisionCard(d: Decision, vm: CareroActions) {
     val color = severityColor(d.warning.severity)
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(C.surface).border(2.dp, color.copy(alpha = 0.7f), RoundedCornerShape(20.dp)).padding(24.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(severityLabel(d.warning.severity), color = color, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(decisionLabel(d), color = color, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(12.dp))
             Text("권장 행동: ${actionLabel(d.action)}", color = C.text2, fontSize = 18.sp)
         }
@@ -311,7 +327,7 @@ private fun DecisionCard(d: Decision, vm: CareroActions) {
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             if (d.action == Action.VIA_REPAIR_SHOP && d.shop != null) Button(onClick = { vm.addWaypoint(d) }, colors = ButtonDefaults.buttonColors(containerColor = C.info, contentColor = Color.White)) { Text("경유지 추가", fontSize = 20.sp) }
-            OutlinedButton(onClick = { vm.dismiss(d.warning.type) }) { Text("확인", fontSize = 20.sp, color = C.text) }
+            OutlinedButton(onClick = { vm.dismiss(d.warning) }) { Text("확인", fontSize = 20.sp, color = C.text) }
         }
     }
 }
@@ -342,6 +358,21 @@ private fun DemoPanel(d: DemoState, vm: CareroActions, modifier: Modifier) {
             Toggle("워셔액 부족", d.washerLow) { v -> vm.setDemo { it.copy(washerLow = v) }; vm.resetDismissed() }
             Toggle("비 (와이퍼 작동)", d.rain) { v -> vm.setDemo { it.copy(rain = v) } }
             Toggle("전조등 꺼짐", d.headlightOff) { v -> vm.setDemo { it.copy(headlightOff = v) } }
+            Text("계기판 경고등 (확장 기능 미리보기)", color = C.text, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+            DEMO_TELLTALES.chunked(3).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                    row.forEach { id ->
+                        val info = TelltaleGuide.of(id)
+                        if (info != null) {
+                            val sel = id in d.telltales
+                            Text(info.symbol, color = if (sel) C.bg else lampColor(info.color), fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (sel) lampColor(info.color) else C.surface)
+                                    .clickable { vm.setDemo { it.copy(telltales = if (sel) it.telltales - id else it.telltales + id) }; vm.resetDismissed() }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp))
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -351,5 +382,129 @@ private fun Toggle(label: String, checked: Boolean, onChange: (Boolean) -> Unit)
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = C.text, fontSize = 16.sp, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** 데모 패널에서 켤 수 있는 경고등 */
+private val DEMO_TELLTALES = listOf("ENGINE_TEMPERATURE", "ENGINE", "ABS", "TPMS", "SEAT_BELT", "LOW_FUEL")
+
+private fun lampColor(c: LampColor) = when (c) {
+    LampColor.RED -> C.critical
+    LampColor.YELLOW -> C.warning
+    LampColor.GREEN -> C.good
+    LampColor.BLUE -> C.info
+    LampColor.WHITE -> C.text
+}
+
+private fun levelText(l: TelltaleLevel) = when (l) {
+    TelltaleLevel.STOP -> "바로 정차"
+    TelltaleLevel.FIX_NOW -> "바로 조치"
+    TelltaleLevel.CHECK -> "빨리 점검"
+    TelltaleLevel.LATER -> "급하지 않음"
+    TelltaleLevel.SHOW -> "안내 표시"
+}
+
+// ---------------- 경고등 사전 (정차 중에만) ----------------
+@Composable
+private fun TelltaleGuideScreen(s: UiState, onClose: () -> Unit) {
+    val activeIds = s.telltales.map { it.id }.toSet()
+    val active = TelltaleGuide.all.filter { it.id in activeIds }
+    val sections = buildList {
+        if (active.isNotEmpty()) add("지금 켜져 있어요" to active)
+        add("빨간색 · 바로 확인" to TelltaleGuide.all.filter { it.color == LampColor.RED && it.level != TelltaleLevel.SHOW })
+        add("노란색 · 점검이 필요해요" to TelltaleGuide.all.filter { it.color == LampColor.YELLOW && it.level != TelltaleLevel.SHOW })
+        add("안내 표시 · 경고가 아니에요" to TelltaleGuide.all.filter { it.level == TelltaleLevel.SHOW })
+    }
+    var selectedId by remember { mutableStateOf(active.firstOrNull()?.id ?: TelltaleGuide.all.first().id) }
+    val selected = TelltaleGuide.of(selectedId) ?: TelltaleGuide.all.first()
+    Column(Modifier.fillMaxSize()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("경고등 사전", color = C.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(16.dp))
+            Text(
+                when (s.telltaleSupported) {
+                    true -> if (active.isEmpty()) "지금 켜진 경고등은 없어요" else "지금 켜진 경고등 ${active.size}개"
+                    false -> "계기판에서 본 불빛 모양으로 찾아보세요"
+                    null -> "켜진 경고등을 확인하는 중이에요"
+                },
+                color = C.text2, fontSize = 18.sp, modifier = Modifier.weight(1f),
+            )
+            OutlinedButton(onClick = onClose) { Text("닫기", fontSize = 18.sp, color = C.text) }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                sections.forEach { (title, list) ->
+                    item(key = "h_$title") {
+                        Text(title, color = if (title.startsWith("지금")) C.text else C.text2, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+                    }
+                    items(list, key = { "${title}_${it.id}" }) { info ->
+                        val sel = info.id == selected.id
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(if (sel) C.surface2 else C.surface)
+                                .border(2.dp, if (sel) lampColor(info.color) else Color.Transparent, RoundedCornerShape(14.dp))
+                                .clickable { selectedId = info.id }.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            LampBadge(info, small = true)
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(info.name, color = C.text, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(info.shape, color = C.text2, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (info.id in activeIds) Text("켜짐", color = lampColor(info.color), fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+            GuideDetail(selected, on = selected.id in activeIds, blinking = s.telltales.any { it.id == selected.id && it.blinking }, modifier = Modifier.weight(1.3f))
+        }
+    }
+}
+
+@Composable
+private fun GuideDetail(info: TelltaleInfo, on: Boolean, blinking: Boolean, modifier: Modifier) {
+    val color = lampColor(info.color)
+    Column(modifier.fillMaxSize().clip(RoundedCornerShape(20.dp)).background(C.surface).border(2.dp, color.copy(alpha = 0.6f), RoundedCornerShape(20.dp)).padding(horizontal = 28.dp, vertical = 22.dp).verticalScroll(rememberScrollState())) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            LampBadge(info, small = false)
+            Spacer(Modifier.width(24.dp))
+            Column {
+                Text(info.name, color = C.text, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    Chip(levelText(info.level), color)
+                    if (on) Chip(if (blinking) "지금 깜빡이는 중" else "지금 켜져 있음", color)
+                }
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Text("무슨 뜻이에요?", color = C.text2, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(info.meaning, color = C.text, fontSize = 19.sp, lineHeight = 26.sp)
+        Spacer(Modifier.height(10.dp))
+        Text("어떻게 해요?", color = C.text2, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(info.todo, color = C.text, fontSize = 19.sp, lineHeight = 26.sp)
+        Spacer(Modifier.height(10.dp))
+        Text("생김새", color = C.text2, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(info.shape, color = C.text, fontSize = 19.sp, lineHeight = 26.sp)
+        Spacer(Modifier.height(14.dp))
+        Text("차종마다 모양과 색이 조금 다를 수 있어요. 정확한 내용은 차량 취급설명서를 확인하세요.", color = C.text2.copy(alpha = 0.7f), fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun LampBadge(info: TelltaleInfo, small: Boolean) {
+    val color = lampColor(info.color)
+    val long = info.symbol.length > 4
+    Box(
+        Modifier.size(if (small) 64.dp else 88.dp).clip(RoundedCornerShape(if (small) 14.dp else 24.dp)).background(Color.Black)
+            .border(2.dp, color.copy(alpha = 0.5f), RoundedCornerShape(if (small) 14.dp else 24.dp)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            info.symbol, color = color, fontWeight = FontWeight.Bold, maxLines = 2,
+            fontSize = if (small) (if (long) 12.sp else 16.sp) else (if (long) 17.sp else 24.sp),
+            lineHeight = if (small) 16.sp else 30.sp,
+        )
     }
 }

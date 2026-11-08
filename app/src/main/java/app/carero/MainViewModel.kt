@@ -10,6 +10,7 @@ import app.carero.data.PleosVehicleSource
 import app.carero.data.RepairShopRepository
 import app.carero.data.SpeedSource
 import app.carero.data.VehicleSnapshot
+import app.carero.engine.ActiveTelltale
 import app.carero.engine.Decision
 import app.carero.engine.DecisionEngine
 import app.carero.engine.DrivingContext
@@ -19,6 +20,7 @@ import app.carero.engine.GeoPoint
 import app.carero.engine.Severity
 import app.carero.engine.Suggestion
 import app.carero.engine.SuggestionEngine
+import app.carero.engine.TelltaleGuide
 import app.carero.engine.VehicleWarning
 import app.carero.engine.WarningType
 import kotlinx.coroutines.delay
@@ -44,6 +46,10 @@ data class UiState(
     val vehicleSdk: Boolean = false,
     val naviSdk: Boolean = false,
     val toast: String? = null,
+    /** 지금 켜진 계기판 경고등(안내 표시 포함). 경고등 사전 맨 위에 보여 줍니다. */
+    val telltales: List<ActiveTelltale> = emptyList(),
+    /** 이 차량에서 경고등 목록을 받을 수 있는지. null = 아직 모름 */
+    val telltaleSupported: Boolean? = null,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.CareroActions {
@@ -55,7 +61,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
     private val speedSource = SpeedSource(app)
 
     private val demo = MutableStateFlow(DemoState())
-    private val dismissed = MutableStateFlow<Set<WarningType>>(emptySet())
+    private val dismissed = MutableStateFlow<Set<String>>(emptySet())
     private val activeSuggestion = MutableStateFlow<Suggestion?>(null)
     private val toast = MutableStateFlow<String?>(null)
     private val clock = MutableStateFlow(System.currentTimeMillis())
@@ -76,7 +82,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
 
     private data class Inputs(val v: VehicleSnapshot, val n: NaviSnapshot, val speed: Float?, val d: DemoState, val now: Long, val gearDrive: Boolean? = null)
 
-    private fun build(i: Inputs, dismissedTypes: Set<WarningType>, sug: Suggestion?, msg: String?): UiState {
+    private fun build(i: Inputs, dismissedKeys: Set<String>, sug: Suggestion?, msg: String?): UiState {
         val d = i.d
         val driving = if (d.enabled && d.driving != null) d.driving else (i.speed ?: 0f) >= 2f || i.gearDrive == true
         if (driving && !wasDriving) suggestions.newTrip()
@@ -86,8 +92,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         val night = if (d.enabled && d.night != null) d.night else isNight(current, i.now)
         val ctx = DrivingContext(isDriving = driving, remainDistanceM = remainM, remainTimeSec = if (d.enabled) null else i.n.remainTimeSec, isNight = night, current = current, destination = destination)
 
+        val snapshot = if (d.enabled) demoSnapshot(d) else i.v
         val warnings = if (d.enabled) demoWarnings(d) else warningsOf(i.v)
-        val decisions = engine.decide(warnings.filter { it.type !in dismissedTypes }, ctx)
+        val decisions = engine.decide(warnings.filter { it.key !in dismissedKeys }, ctx)
+        // 꺼진 경고는 '확인했어요' 기록을 지워서, 다시 켜지면 또 알려 줍니다.
+        val stale = dismissedKeys - warnings.map { it.key }.toSet()
+        if (stale.isNotEmpty()) viewModelScope.launch { dismissed.update { it - stale } }
 
         val wiper = if (d.enabled) d.rain else when {
             i.v.wiperOn == true || i.v.wiperSwitchOn == true -> true
@@ -102,8 +112,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
 
         return UiState(
             driving = driving, ctx = ctx, decisions = decisions, suggestion = activeSuggestion.value ?: sug,
-            checks = checksOf(if (d.enabled) demoSnapshot(d) else i.v), demo = d,
+            checks = checksOf(snapshot), demo = d,
             vehicleSdk = i.v.sdkConnected, naviSdk = i.n.sdkConnected, toast = msg,
+            telltales = snapshot.telltales.orEmpty(),
+            telltaleSupported = when {
+                d.enabled -> true
+                "telltale" in i.v.unsupported -> false
+                i.v.telltales != null -> true
+                else -> null
+            },
         )
     }
 
@@ -113,6 +130,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         DecisionEngine.severityOf(v.transmissionOil ?: FluidLevel.UNKNOWN)?.let { add(VehicleWarning(WarningType.TRANSMISSION_OIL, it)) }
         // 타이어: 공개 API(getLowTirePressure)는 저압 '기준값'만 제공하고 실제 공기압은 비공개 API라 실제 데이터로는 판단하지 않습니다(데모 모드에서만 재현).
         if (v.washerLow == true) add(VehicleWarning(WarningType.WASHER_FLUID, Severity.INFO))
+        // 계기판 경고등: 켜진 등마다 하나씩. 안내 표시(오토홀드·상향등 등)는 빠집니다.
+        v.telltales.orEmpty().forEach { t -> TelltaleGuide.warningOf(t)?.let { add(it) } }
     }
 
     private fun checksOf(v: VehicleSnapshot): List<CheckItem> {
@@ -123,8 +142,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
             l == FluidLevel.LOW -> CheckStatus.WARN
             else -> CheckStatus.OK
         })
+        val tpms = v.telltales?.any { it.id == "TPMS" }
         val tire = CheckItem("타이어 공기압", when {
-            v.tireLow.isEmpty() -> CheckStatus.UNSUPPORTED // 실제 공기압은 비공개 API
+            // 실제 공기압은 비공개 API라, 계기판의 타이어 공기압 경고등으로 판단합니다.
+            v.tireLow.isEmpty() && tpms != null -> if (tpms) CheckStatus.WARN else CheckStatus.OK
+            v.tireLow.isEmpty() -> CheckStatus.UNSUPPORTED
             v.tireLow.values.any { it } -> CheckStatus.WARN
             else -> CheckStatus.OK
         })
@@ -134,9 +156,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
             v.washerLow -> CheckStatus.WARN
             else -> CheckStatus.OK
         })
-        return listOf(
+        val lamps = CheckItem("계기판 경고등", when {
+            "telltale" in v.unsupported -> CheckStatus.UNSUPPORTED
+            v.telltales == null -> CheckStatus.UNKNOWN
+            else -> {
+                val ws = v.telltales.mapNotNull { TelltaleGuide.warningOf(it) }
+                when {
+                    ws.any { it.severity == Severity.CRITICAL } -> CheckStatus.CRITICAL
+                    ws.isNotEmpty() -> CheckStatus.WARN
+                    else -> CheckStatus.OK
+                }
+            }
+        })
+        return listOfNotNull(
             fluid("brake", "브레이크액", v.brakeFluid), fluid("engineOil", "엔진오일", v.engineOil),
             fluid("transmissionOil", "변속기오일", v.transmissionOil), tire, washer,
+            // 경고등을 받을 수 없으면(비공개 API라 꺼 둠) 줄 자체를 숨깁니다. 데모 모드에서만 보입니다.
+            lamps.takeIf { it.status != CheckStatus.UNSUPPORTED },
         )
     }
 
@@ -146,6 +182,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         if (d.engineOilLow) add(VehicleWarning(WarningType.ENGINE_OIL, Severity.CAUTION))
         if (d.tireLow) add(VehicleWarning(WarningType.TIRE_LOW_PRESSURE, Severity.CAUTION, "왼쪽 뒤"))
         if (d.washerLow) add(VehicleWarning(WarningType.WASHER_FLUID, Severity.INFO))
+        d.telltales.forEach { id -> TelltaleGuide.warningOf(ActiveTelltale(id))?.let { add(it) } }
     }
 
     private fun demoSnapshot(d: DemoState) = VehicleSnapshot(
@@ -153,7 +190,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         engineOil = if (d.engineOilLow) FluidLevel.LOW else FluidLevel.NORMAL,
         transmissionOil = FluidLevel.NORMAL,
         washerLow = d.washerLow,
-        tireLow = mapOf("왼쪽 앞" to false, "오른쪽 앞" to false, "왼쪽 뒤" to d.tireLow, "오른쪽 뒤" to false),
+        tireLow = mapOf("왼쪽 앞" to false, "오른쪽 앞" to false, "왼쪽 뒤" to (d.tireLow || "TPMS" in d.telltales), "오른쪽 뒤" to false),
+        telltales = d.telltales.map { ActiveTelltale(it) },
     )
 
     /** 데모 위치: 120km → 수원에서 대전으로 가는 길, 3km → 영등포 도심 */
@@ -165,7 +203,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
 
     override fun setDemo(update: (DemoState) -> DemoState) = demo.update(update)
 
-    override fun dismiss(type: WarningType) = dismissed.update { it + type }
+    override fun dismiss(warning: VehicleWarning) = dismissed.update { it + warning.key }
 
     override fun resetDismissed() { dismissed.value = emptySet() }
 
@@ -173,7 +211,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), app.carero.ui.Car
         val shop = decision.shop?.shop ?: return
         val ok = if (demo.value.enabled) true else naviSource.addWaypoint(shop)
         toast.value = if (ok) "${shop.name}을(를) 경유지로 추가했어요" else "내비게이션에 연결되지 않아 경유지를 추가하지 못했어요"
-        dismiss(decision.warning.type)
+        dismiss(decision.warning)
         viewModelScope.launch { delay(4_000); toast.value = null }
     }
 

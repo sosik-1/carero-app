@@ -7,7 +7,9 @@ import app.carero.CheckStatus
 import app.carero.UiState
 import app.carero.data.DemoState
 import app.carero.engine.Decision
+import app.carero.engine.ActiveTelltale
 import app.carero.engine.DecisionEngine
+import app.carero.engine.TelltaleGuide
 import app.carero.engine.DrivingContext
 import app.carero.engine.GeoPoint
 import app.carero.engine.RepairShop
@@ -35,7 +37,7 @@ class ScreenshotTest {
     )
     private val engine = DecisionEngine(shops)
     private val noop = object : CareroActions {
-        override fun dismiss(type: WarningType) {}
+        override fun dismiss(warning: VehicleWarning) {}
         override fun resetDismissed() {}
         override fun addWaypoint(decision: Decision) {}
         override fun setDemo(update: (DemoState) -> DemoState) {}
@@ -47,6 +49,7 @@ class ScreenshotTest {
         CheckItem("변속기오일", CheckStatus.OK),
         CheckItem("타이어 공기압", CheckStatus.UNSUPPORTED),
         CheckItem("워셔액", if (washer) CheckStatus.WARN else CheckStatus.OK),
+        CheckItem("계기판 경고등", CheckStatus.OK),
     )
     private fun state(ws: List<VehicleWarning>, ctx: DrivingContext, checks: List<CheckItem>, suggestion: Suggestion? = null) =
         UiState(driving = ctx.isDriving, ctx = ctx, decisions = engine.decide(ws, ctx), suggestion = suggestion, checks = checks,
@@ -81,5 +84,19 @@ class ScreenshotTest {
     @Test fun s6_demo_panel() {
         val ctx = DrivingContext(isDriving = false, current = GeoPoint(37.5156, 126.9077))
         paparazzi.snapshot { CareroScreen(state(emptyList(), ctx, checks()).copy(demo = DemoState(enabled = true, driving = true, remainKm = 120, engineOilLow = true)), noop, initialShowDemo = true) }
+    }
+
+    @Test fun s7_telltale_driving() {
+        // 주행 중 엔진 점검등(노랑) + 안전벨트(바로 조치)
+        val ctx = DrivingContext(isDriving = true, remainDistanceM = 120_000, current = GeoPoint(37.2636, 127.0286), destination = GeoPoint(36.3326, 127.4342))
+        val ws = listOf("SEAT_BELT", "ENGINE").mapNotNull { TelltaleGuide.warningOf(ActiveTelltale(it)) }
+        paparazzi.snapshot { CareroScreen(state(ws, ctx, checks()), noop) }
+    }
+
+    @Test fun s8_telltale_guide() {
+        val ctx = DrivingContext(isDriving = false, current = GeoPoint(37.5156, 126.9077))
+        val on = listOf(ActiveTelltale("ENGINE"), ActiveTelltale("TPMS"))
+        val ws = on.mapNotNull { TelltaleGuide.warningOf(it) }
+        paparazzi.snapshot { CareroScreen(state(ws, ctx, checks()).copy(telltales = on, telltaleSupported = true), noop, initialShowGuide = true) }
     }
 }

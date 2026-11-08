@@ -1,5 +1,6 @@
 package app.carero.data
 
+import app.carero.engine.ActiveTelltale
 import app.carero.engine.FluidLevel
 import app.carero.engine.GeoPoint
 
@@ -15,6 +16,8 @@ data class VehicleSnapshot(
     /** 와이퍼 스위치 위치(저속·고속·간헐 등). Virtual Console은 스위치를 바꿉니다. */
     val wiperSwitchOn: Boolean? = null,
     val lowBeamOn: Boolean? = null,
+    /** 지금 켜져 있거나 깜빡이는 계기판 경고등. null은 '아직 못 받음' */
+    val telltales: List<ActiveTelltale>? = null,
     val unsupported: Set<String> = emptySet(),
     val sdkConnected: Boolean = false,
 )
@@ -42,4 +45,6 @@ data class DemoState(
     val washerLow: Boolean = false,
     val rain: Boolean = false,
     val headlightOff: Boolean = false,
+    /** 켜 둔 가상 경고등 (TelltaleType 이름) */
+    val telltales: Set<String> = emptySet(),
 )
