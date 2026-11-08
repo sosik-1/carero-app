@@ -11,6 +11,8 @@
 | ![](docs/screenshots/s3_brake_critical.png) | ![](docs/screenshots/s4_rain_headlight.png) |
 | **정차 중: 상세 안내와 차량 컨디션** | **시연용 데모 패널** |
 | ![](docs/screenshots/s5_parked_detail.png) | ![](docs/screenshots/s6_demo_panel.png) |
+| **경고등 사전 (정차 중)** | **경고등 판단 미리보기: 안전벨트는 바로 조치** |
+| ![](docs/screenshots/s8_telltale_guide.png) | ![](docs/screenshots/s7_telltale_driving.png) |
 
 ## APK 위치
 
